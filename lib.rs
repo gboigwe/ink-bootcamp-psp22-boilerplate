@@ -380,4 +380,240 @@ mod psp_coin {
             Ok(())
         }
     }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[ink::test]
+        fn new_works() {
+            let contract = PspCoin::new();
+            assert_eq!(contract.total_supply(), 0);
+        }
+
+        #[ink::test]
+        fn new_with_supply_works() {
+            let accounts = ink::env::test::default_accounts();
+            ink::env::test::set_caller(accounts.alice);
+
+            let contract = PspCoin::new_with_supply(1000);
+            assert_eq!(contract.total_supply(), 1000);
+            assert_eq!(contract.balance_of(accounts.alice), 1000);
+        }
+
+        #[ink::test]
+        fn transfer_works() {
+            let accounts = ink::env::test::default_accounts();
+            ink::env::test::set_caller(accounts.alice);
+
+            let mut contract = PspCoin::new_with_supply(1000);
+
+            // Transfer from Alice to Bob
+            assert_eq!(contract.transfer(accounts.bob, 100, vec![]), Ok(()));
+            assert_eq!(contract.balance_of(accounts.alice), 900);
+            assert_eq!(contract.balance_of(accounts.bob), 100);
+        }
+
+        #[ink::test]
+        fn transfer_fails_insufficient_balance() {
+            let accounts = ink::env::test::default_accounts();
+            ink::env::test::set_caller(accounts.alice);
+
+            let mut contract = PspCoin::new_with_supply(100);
+
+            // Try to transfer more than balance
+            assert_eq!(
+                contract.transfer(accounts.bob, 200, vec![]),
+                Err(PSP22Error::InsufficientBalance)
+            );
+        }
+
+        #[ink::test]
+        fn transfer_to_self_is_noop() {
+            let accounts = ink::env::test::default_accounts();
+            ink::env::test::set_caller(accounts.alice);
+
+            let mut contract = PspCoin::new_with_supply(1000);
+
+            // Transfer to self should be no-op
+            assert_eq!(contract.transfer(accounts.alice, 100, vec![]), Ok(()));
+            assert_eq!(contract.balance_of(accounts.alice), 1000);
+        }
+
+        #[ink::test]
+        fn approve_works() {
+            let accounts = ink::env::test::default_accounts();
+            ink::env::test::set_caller(accounts.alice);
+
+            let mut contract = PspCoin::new_with_supply(1000);
+
+            assert_eq!(contract.approve(accounts.bob, 200), Ok(()));
+            assert_eq!(contract.allowance(accounts.alice, accounts.bob), 200);
+        }
+
+        #[ink::test]
+        fn transfer_from_works() {
+            let accounts = ink::env::test::default_accounts();
+            ink::env::test::set_caller(accounts.alice);
+
+            let mut contract = PspCoin::new_with_supply(1000);
+
+            // Alice approves Bob to spend 200 tokens
+            assert_eq!(contract.approve(accounts.bob, 200), Ok(()));
+
+            // Switch to Bob's account
+            ink::env::test::set_caller(accounts.bob);
+
+            // Bob transfers 100 tokens from Alice to Charlie
+            assert_eq!(
+                contract.transfer_from(accounts.alice, accounts.charlie, 100, vec![]),
+                Ok(())
+            );
+
+            assert_eq!(contract.balance_of(accounts.alice), 900);
+            assert_eq!(contract.balance_of(accounts.charlie), 100);
+            assert_eq!(contract.allowance(accounts.alice, accounts.bob), 100);
+        }
+
+        #[ink::test]
+        fn transfer_from_fails_insufficient_allowance() {
+            let accounts = ink::env::test::default_accounts();
+            ink::env::test::set_caller(accounts.alice);
+
+            let mut contract = PspCoin::new_with_supply(1000);
+
+            // Alice approves Bob to spend 50 tokens
+            assert_eq!(contract.approve(accounts.bob, 50), Ok(()));
+
+            // Switch to Bob's account
+            ink::env::test::set_caller(accounts.bob);
+
+            // Bob tries to transfer 100 tokens (more than allowance)
+            assert_eq!(
+                contract.transfer_from(accounts.alice, accounts.charlie, 100, vec![]),
+                Err(PSP22Error::InsufficientAllowance)
+            );
+        }
+
+        #[ink::test]
+        fn increase_allowance_works() {
+            let accounts = ink::env::test::default_accounts();
+            ink::env::test::set_caller(accounts.alice);
+
+            let mut contract = PspCoin::new_with_supply(1000);
+
+            assert_eq!(contract.approve(accounts.bob, 100), Ok(()));
+            assert_eq!(contract.increase_allowance(accounts.bob, 50), Ok(()));
+            assert_eq!(contract.allowance(accounts.alice, accounts.bob), 150);
+        }
+
+        #[ink::test]
+        fn decrease_allowance_works() {
+            let accounts = ink::env::test::default_accounts();
+            ink::env::test::set_caller(accounts.alice);
+
+            let mut contract = PspCoin::new_with_supply(1000);
+
+            assert_eq!(contract.approve(accounts.bob, 100), Ok(()));
+            assert_eq!(contract.decrease_allowance(accounts.bob, 30), Ok(()));
+            assert_eq!(contract.allowance(accounts.alice, accounts.bob), 70);
+        }
+
+        #[ink::test]
+        fn decrease_allowance_fails_insufficient() {
+            let accounts = ink::env::test::default_accounts();
+            ink::env::test::set_caller(accounts.alice);
+
+            let mut contract = PspCoin::new_with_supply(1000);
+
+            assert_eq!(contract.approve(accounts.bob, 50), Ok(()));
+
+            // Try to decrease more than current allowance
+            assert_eq!(
+                contract.decrease_allowance(accounts.bob, 100),
+                Err(PSP22Error::InsufficientAllowance)
+            );
+        }
+
+        #[ink::test]
+        fn mint_works() {
+            let accounts = ink::env::test::default_accounts();
+            ink::env::test::set_caller(accounts.alice);
+
+            let mut contract = PspCoin::new();
+
+            assert_eq!(contract.mint(500), Ok(()));
+            assert_eq!(contract.total_supply(), 500);
+            assert_eq!(contract.balance_of(accounts.alice), 500);
+        }
+
+        #[ink::test]
+        fn burn_works() {
+            let accounts = ink::env::test::default_accounts();
+            ink::env::test::set_caller(accounts.alice);
+
+            let mut contract = PspCoin::new_with_supply(1000);
+
+            assert_eq!(contract.burn(300), Ok(()));
+            assert_eq!(contract.total_supply(), 700);
+            assert_eq!(contract.balance_of(accounts.alice), 700);
+        }
+
+        #[ink::test]
+        fn burn_fails_insufficient_balance() {
+            let accounts = ink::env::test::default_accounts();
+            ink::env::test::set_caller(accounts.alice);
+
+            let mut contract = PspCoin::new_with_supply(100);
+
+            // Try to burn more than balance
+            assert_eq!(
+                contract.burn(200),
+                Err(PSP22Error::InsufficientBalance)
+            );
+        }
+
+        #[ink::test]
+        fn metadata_works() {
+            let contract = PspCoin::new();
+
+            assert_eq!(contract.name(), Some(String::from("PSP Coin")));
+            assert_eq!(contract.symbol(), Some(String::from("PSP")));
+            assert_eq!(contract.decimals(), 18);
+        }
+
+        #[ink::test]
+        fn zero_value_transfer_is_noop() {
+            let accounts = ink::env::test::default_accounts();
+            ink::env::test::set_caller(accounts.alice);
+
+            let mut contract = PspCoin::new_with_supply(1000);
+
+            assert_eq!(contract.transfer(accounts.bob, 0, vec![]), Ok(()));
+            assert_eq!(contract.balance_of(accounts.alice), 1000);
+            assert_eq!(contract.balance_of(accounts.bob), 0);
+        }
+
+        #[ink::test]
+        fn zero_value_mint_is_noop() {
+            let accounts = ink::env::test::default_accounts();
+            ink::env::test::set_caller(accounts.alice);
+
+            let mut contract = PspCoin::new();
+
+            assert_eq!(contract.mint(0), Ok(()));
+            assert_eq!(contract.total_supply(), 0);
+        }
+
+        #[ink::test]
+        fn zero_value_burn_is_noop() {
+            let accounts = ink::env::test::default_accounts();
+            ink::env::test::set_caller(accounts.alice);
+
+            let mut contract = PspCoin::new_with_supply(1000);
+
+            assert_eq!(contract.burn(0), Ok(()));
+            assert_eq!(contract.total_supply(), 1000);
+        }
+    }
 }
